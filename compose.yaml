@@ -1,0 +1,23 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_PATH: /data/app.db
+      DATA_DIR: /data
+      TZ: Europe/Paris
+      # Caddy remplace l'X-Forwarded-For reçu par l'IP réelle ; l'app n'est joignable que par Caddy.
+      TRUSTED_IP_HEADER: x-forwarded-for
+    volumes:
+      - ./data:/data
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment: [DOMAIN]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+volumes:
+  caddy_data:

@@ -1,0 +1,20 @@
+# Déploiement sur le NAS (Debian + Docker, CasaOS occupe déjà 80/443) : l'app seule sur le port 3100, en local.
+# Accès public : route du tunnel Cloudflare du NAS (conteneur cloudflared, réseau hôte) vers http://localhost:3100.
+# Le port n'est pas publié sur le réseau : seul le tunnel atteint l'app, aucun client ne peut forger CF-Connecting-IP.
+# Mise à jour : ./deploy.sh depuis le Mac (voir deploy/nas/deploy.sh).
+services:
+  app:
+    build: ./app
+    container_name: learnee
+    restart: unless-stopped
+    env_file: ./app.env
+    environment:
+      DATABASE_PATH: /data/app.db
+      DATA_DIR: /data
+      TZ: Europe/Paris
+      # Posé par Cloudflare ; fiable seulement parce que le port n'écoute que sur la machine (tunnel).
+      TRUSTED_IP_HEADER: cf-connecting-ip
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:3100:3000"
