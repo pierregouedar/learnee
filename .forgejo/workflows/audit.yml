@@ -1,0 +1,43 @@
+# Audit des dépendances (pnpm audit, niveau high) chaque lundi, ou à la main.
+# Si une faille HIGH/CRITICAL est trouvée : notification ntfy, et le run échoue.
+# Secret : NTFY_TOPIC (même topic ntfy.sh que les alertes du NAS ; le message ne contient aucun secret).
+name: audit
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: docker
+    container:
+      image: node:22-alpine
+    steps:
+      - name: Outils
+        run: apk add --no-cache git jq curl >/dev/null && npm i -g pnpm@11 >/dev/null
+      - name: Récupérer le code
+        run: git clone --depth 1 "https://oauth2:${FORGEJO_TOKEN}@banane.tailcddc99.ts.net:3000/${FORGEJO_REPOSITORY}.git" .
+      - name: pnpm audit
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          # Lit le lockfile, pas d'installation. Code 0 = rien, 1 = failles trouvées, autre = erreur.
+          set +e
+          pnpm audit --audit-level=high --json > audit.json
+          CODE=$?
+          set -e
+          [ "$CODE" -eq 0 ] && { echo "Aucune faille HIGH/CRITICAL"; exit 0; }
+          [ "$CODE" -eq 1 ] || { echo "Erreur de pnpm audit ($CODE)"; cat audit.json; exit 1; }
+          # Une ligne par paquet : sévérité max, version(s), correctif. Critiques d'abord.
+          SUMMARY=$(jq -r '[.advisories[]] | group_by(.module_name)
+            | sort_by(all(.[]; .severity != "critical"))
+            | map((if any(.[]; .severity == "critical") then "CRIT" else "HIGH" end)
+                + " " + .[0].module_name + " " + ([.[].findings[].version] | unique | join(","))
+                + " -> " + ([.[].patched_versions | select(. != null and . != "<0.0.0")] | unique
+                            | if length == 0 then "pas de correctif" else join(" / ") end))
+            | .[]' audit.json)
+          echo "$SUMMARY"
+          curl -fsS --max-time 15 -H "Title: learnee : failles dans les dépendances" -H "Priority: high" -H "Tags: rotating_light" \
+            -H "Click: https://banane.tailcddc99.ts.net:3000/${FORGEJO_REPOSITORY}/actions" \
+            -d "$SUMMARY" "https://ntfy.sh/$NTFY_TOPIC" >/dev/null
+          exit 1

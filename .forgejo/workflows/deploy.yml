@@ -1,34 +1,28 @@
-# Push sur main : image construite par le runner du NAS, poussée dans le registre Forgejo, puis Coolify redéploie.
-# Secrets du dépôt : REGISTRY_TOKEN (jeton Forgejo, scope write:package), COOLIFY_TOKEN (jeton API Coolify, permission deploy).
-# Variable du dépôt : COOLIFY_APP_UUID (UUID de l'application dans Coolify).
+# Déploiement manuel (Forgejo > Actions > deploy > Exécuter le workflow) de l'image déjà construite par « ci » :
+# production = :latest (branche main), staging = :staging (branche staging).
+# Secret : COOLIFY_TOKEN (Coolify, permissions deploy + read).
+# Variables : COOLIFY_APP_UUID (production), COOLIFY_STAGING_APP_UUID (staging).
 name: deploy
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environnement:
+        description: Environnement à déployer
+        type: choice
+        options: [staging, production]
+        default: staging
 
 jobs:
   deploy:
     runs-on: docker
-    env:
-      IMAGE: banane.tailcddc99.ts.net:3000/${{ forgejo.repository }}
     steps:
-      - name: Récupérer le code
+      - name: Récupérer le script de déploiement
         run: git clone --depth 1 --branch "$FORGEJO_REF_NAME" "https://oauth2:${FORGEJO_TOKEN}@banane.tailcddc99.ts.net:3000/${FORGEJO_REPOSITORY}.git" .
-
-      - name: Tests
-        run: docker build --target build -t learnee-test . && docker run --rm learnee-test pnpm test
-
-      - name: Construire et pousser l'image
-        env:
-          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
-        run: |
-          echo "$REGISTRY_TOKEN" | docker login banane.tailcddc99.ts.net:3000 -u "$FORGEJO_REPOSITORY_OWNER" --password-stdin
-          docker build -t "$IMAGE:$FORGEJO_SHA" -t "$IMAGE:latest" .
-          docker push "$IMAGE:$FORGEJO_SHA"
-          docker push "$IMAGE:latest"
-
-      - name: Redéployer dans Coolify
+      - name: Déployer dans Coolify et attendre la fin
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ forgejo.event.inputs.environnement == 'production' && vars.COOLIFY_APP_UUID || vars.COOLIFY_STAGING_APP_UUID }}
         run: |
-          wget -q -O - --header "Authorization: Bearer $COOLIFY_TOKEN" --post-data "" "https://banane.tailcddc99.ts.net:8000/api/v1/deploy?uuid=${{ vars.COOLIFY_APP_UUID }}"
+          apk add --no-cache jq >/dev/null
+          echo "Environnement : ${{ forgejo.event.inputs.environnement }}"
+          sh .forgejo/deploy-coolify.sh "$APP_UUID"

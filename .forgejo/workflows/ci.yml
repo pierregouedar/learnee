@@ -1,0 +1,46 @@
+# Push sur main ou staging : qualité (lint, types, tests) puis image poussée dans le registre Forgejo.
+# main -> :latest (production), staging -> :staging. Le déploiement est manuel : workflow « deploy ».
+# Secret du dépôt : REGISTRY_TOKEN (jeton Forgejo, scope write:package).
+name: ci
+on:
+  push:
+    branches: [main, staging]
+
+env:
+  IMAGE: banane.tailcddc99.ts.net:3000/${{ forgejo.repository }}
+
+jobs:
+  quality:
+    runs-on: docker
+    steps:
+      - name: Récupérer le code
+        run: |
+          git clone --depth 20 --branch "$FORGEJO_REF_NAME" "https://oauth2:${FORGEJO_TOKEN}@banane.tailcddc99.ts.net:3000/${FORGEJO_REPOSITORY}.git" .
+          git checkout -q "$FORGEJO_SHA"
+      - name: Lint, types, tests
+        run: |
+          docker build --target build -t "learnee-quality:$FORGEJO_SHA" .
+          docker run --rm "learnee-quality:$FORGEJO_SHA" sh -c "pnpm lint && pnpm typecheck && pnpm test"
+          docker rmi -f "learnee-quality:$FORGEJO_SHA" >/dev/null
+
+  # Après quality (et non en parallèle comme sur koul-v3) : le runner n'exécute qu'un job à la fois,
+  # et :latest ne doit jamais pointer sur une image qui n'a pas passé les contrôles.
+  build:
+    needs: quality
+    runs-on: docker
+    steps:
+      - name: Récupérer le code
+        run: |
+          git clone --depth 20 --branch "$FORGEJO_REF_NAME" "https://oauth2:${FORGEJO_TOKEN}@banane.tailcddc99.ts.net:3000/${FORGEJO_REPOSITORY}.git" .
+          git checkout -q "$FORGEJO_SHA"
+      - name: Construire et pousser l'image
+        env:
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          if [ "$FORGEJO_REF_NAME" = main ]; then CHANNEL=latest; else CHANNEL=staging; fi
+          echo "$REGISTRY_TOKEN" | docker login banane.tailcddc99.ts.net:3000 -u "$FORGEJO_REPOSITORY_OWNER" --password-stdin
+          docker build -t "$IMAGE:$FORGEJO_SHA" -t "$IMAGE:$CHANNEL" .
+          docker push "$IMAGE:$FORGEJO_SHA"
+          docker push "$IMAGE:$CHANNEL"
+          docker rmi "$IMAGE:$FORGEJO_SHA" "$IMAGE:$CHANNEL" >/dev/null
+          docker image prune -f >/dev/null
