@@ -39,8 +39,16 @@ jobs:
         run: |
           if [ "$FORGEJO_REF_NAME" = main ]; then CHANNEL=latest; else CHANNEL=staging; fi
           echo "$REGISTRY_TOKEN" | docker login banane.tailcddc99.ts.net:3000 -u "$FORGEJO_REPOSITORY_OWNER" --password-stdin
-          docker build -t "$IMAGE:$FORGEJO_SHA" -t "$IMAGE:$CHANNEL" .
-          docker push "$IMAGE:$FORGEJO_SHA"
+          # Une seule image par commit : si :<sha> existe déjà (commit poussé sur main et staging),
+          # on la promeut au lieu de la reconstruire. Une 2e construction écraserait :<sha> avec une
+          # image différente, et « deploy » refuserait alors le canal construit en premier.
+          if docker manifest inspect "$IMAGE:$FORGEJO_SHA" >/dev/null 2>&1; then
+            docker pull -q "$IMAGE:$FORGEJO_SHA"
+            docker tag "$IMAGE:$FORGEJO_SHA" "$IMAGE:$CHANNEL"
+          else
+            docker build -t "$IMAGE:$FORGEJO_SHA" -t "$IMAGE:$CHANNEL" .
+            docker push "$IMAGE:$FORGEJO_SHA"
+          fi
           docker push "$IMAGE:$CHANNEL"
           docker rmi "$IMAGE:$FORGEJO_SHA" "$IMAGE:$CHANNEL" >/dev/null
           docker image prune -f >/dev/null
