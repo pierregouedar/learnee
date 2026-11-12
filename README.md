@@ -143,7 +143,7 @@ Chaque appel est journalisé (`[llm] tâche modèle tier ok durée tokens coût`
 
 L'image Docker ([`Dockerfile`](Dockerfile)) produit un serveur Next.js autonome avec ffmpeg, lancé sans root (utilisateur
 `node`, uid 1000). Les données (base SQLite et fichiers audio) vivent dans le volume `/data` : le dossier `./data` de l'hôte
-doit appartenir à l'uid 1000 (`sudo chown -R 1000:1000 data`, fait automatiquement par `deploy/nas/deploy.sh`).
+doit appartenir à l'uid 1000 (`sudo chown -R 1000:1000 data`).
 
 **Serveur avec un nom de domaine** : [`compose.yaml`](compose.yaml) lance l'app derrière Caddy (HTTPS automatique).
 
@@ -153,12 +153,12 @@ docker compose up -d --build
 docker compose exec app node scripts/user-add.mjs eleve student
 ```
 
-**NAS ou serveur derrière un tunnel Cloudflare** : [`deploy/nas`](deploy/nas) lance l'app seule sur le port 3100, joignable
-depuis le NAS uniquement ; le tunnel existant route un nom d'hôte vers `http://localhost:3100`. Mise à jour depuis le poste de dev :
-
-```bash
-deploy/nas/deploy.sh root@<ip-du-nas>   # envoie le dernier commit et .env.local, reconstruit, garde les données
-```
+**NAS (Forgejo + Coolify)** : workflows dans [`.forgejo/workflows`](.forgejo/workflows). Un push sur `main` ou `staging`
+lance `ci` (lint, types, tests, puis image poussée dans le registre Forgejo : `:latest` ou `:staging`). Le déploiement
+est manuel : Actions → `deploy` → environnement `staging` ou `production`, depuis la branche correspondante ; il est
+refusé si la CI du dernier commit n'a pas réussi, et suit le déploiement Coolify jusqu'au bout. `audit` vérifie les
+dépendances chaque lundi. La production écoute sur `127.0.0.1:3100` (route du tunnel Cloudflare), la staging sur
+`127.0.0.1:3101` (Tailscale uniquement).
 
 **Sauvegarde** : copier `data/app.db` (avec `sqlite3 data/app.db ".backup …"`) et le dossier `data/audio/`, par exemple
 chaque nuit par cron.
@@ -202,7 +202,7 @@ src/
     news/       titres d'actualité (flux RSS)
     db/         connexion et migrations
 scripts/        création des comptes
-deploy/nas/     déploiement sur un NAS
+.forgejo/       CI, déploiement Coolify, audit des dépendances
 docs/           spécification et système de design
 ```
 
