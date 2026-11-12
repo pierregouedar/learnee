@@ -1,6 +1,7 @@
-# Déploiement manuel (Forgejo > Actions > deploy > Exécuter le workflow) de l'image déjà construite par « ci » :
-# production = :latest (branche main), staging = :staging (branche staging).
-# Secret : COOLIFY_TOKEN (Coolify, permissions deploy + read).
+# Déploiement manuel (Forgejo > Actions > deploy > Exécuter le workflow) de l'image construite par « ci » :
+# production = :latest, depuis la branche main ; staging = :staging, depuis la branche staging.
+# Refusé si la CI du dernier commit de la branche n'a pas réussi : :<sha> n'est poussé qu'après « quality ».
+# Secrets : COOLIFY_TOKEN (Coolify, permissions deploy + read), REGISTRY_TOKEN (lecture du registre).
 # Variables : COOLIFY_APP_UUID (production), COOLIFY_STAGING_APP_UUID (staging).
 name: deploy
 on:
@@ -18,6 +19,18 @@ jobs:
     steps:
       - name: Récupérer le script de déploiement
         run: git clone --depth 1 --branch "$FORGEJO_REF_NAME" "https://oauth2:${FORGEJO_TOKEN}@banane.tailcddc99.ts.net:3000/${FORGEJO_REPOSITORY}.git" .
+      - name: Vérifier que la CI de ce commit a réussi
+        env:
+          ENVIRONNEMENT: ${{ forgejo.event.inputs.environnement }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          if [ "$ENVIRONNEMENT" = production ]; then BRANCH=main CHANNEL=latest; else BRANCH=staging CHANNEL=staging; fi
+          [ "$FORGEJO_REF_NAME" = "$BRANCH" ] || { echo "$ENVIRONNEMENT se déploie depuis la branche $BRANCH, pas $FORGEJO_REF_NAME"; exit 1; }
+          IMAGE="banane.tailcddc99.ts.net:3000/$FORGEJO_REPOSITORY"
+          echo "$REGISTRY_TOKEN" | docker login banane.tailcddc99.ts.net:3000 -u "$FORGEJO_REPOSITORY_OWNER" --password-stdin >/dev/null
+          COMMIT=$(docker manifest inspect "$IMAGE:$FORGEJO_SHA" 2>/dev/null) || { echo "Pas d'image pour $FORGEJO_SHA : la CI de ce commit a échoué ou n'est pas finie"; exit 1; }
+          [ "$COMMIT" = "$(docker manifest inspect "$IMAGE:$CHANNEL")" ] || { echo ":$CHANNEL ne pointe pas sur $FORGEJO_SHA"; exit 1; }
+          echo "OK : :$CHANNEL = $FORGEJO_SHA"
       - name: Déployer dans Coolify et attendre la fin
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
