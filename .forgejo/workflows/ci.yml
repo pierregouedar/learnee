@@ -44,3 +44,5 @@ jobs:
           docker push "$IMAGE:$CHANNEL"
           docker rmi "$IMAGE:$FORGEJO_SHA" "$IMAGE:$CHANNEL" >/dev/null
           docker image prune -f >/dev/null
+          # Le cache de build grossit à chaque build (6,4 Go après une dizaine de runs) : plafonné à 3 Go.
+          docker builder prune -f --max-used-space 3GB >/dev/null
