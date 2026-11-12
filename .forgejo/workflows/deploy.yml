@@ -30,4 +30,5 @@ jobs:
       - name: Redéployer dans Coolify
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-        run: wget -q -O - --header "Authorization: Bearer $COOLIFY_TOKEN" --post-data "" "https://banane.tailcddc99.ts.net:8000/api/v1/deploy?uuid=${{ vars.COOLIFY_APP_UUID }}"
+        run: |
+          wget -q -O - --header "Authorization: Bearer $COOLIFY_TOKEN" --post-data "" "https://banane.tailcddc99.ts.net:8000/api/v1/deploy?uuid=${{ vars.COOLIFY_APP_UUID }}"
